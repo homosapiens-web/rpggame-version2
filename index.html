@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>地牢冒險：Nanobanana Edition</title>
+    <style>
+        :root { 
+            --tile-size: 35px;
+            --bg-color: #1a1a1a;
+        }
+        body { background: #000; color: #fff; font-family: 'Press Start 2P', cursive, Arial; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        
+        #game-container { width: 100%; max-width: 420px; height: 780px; background: #222; border: 6px solid #444; position: relative; display: flex; flex-direction: column; image-rendering: pixelated; }
+
+        /* 頂部狀態列 */
+        #top-ui { padding: 15px; background: #111; border-bottom: 4px solid #444; font-size: 10px; line-height: 1.5; }
+        .val { color: #f1c40f; }
+
+        /* 地圖區域 */
+        #map-wrapper { flex-grow: 1; background: #000; display: flex; justify-content: center; align-items: center; position: relative; }
+        #map-grid { display: grid; grid-template-columns: repeat(10, var(--tile-size)); grid-template-rows: repeat(10, var(--tile-size)); gap: 0; border: 2px solid #333; }
+        
+        .cell { width: var(--tile-size); height: var(--tile-size); background-size: cover; position: relative; }
+        
+        /* 地圖材質 */
+        .w { background-image: url('https://img.itch.zone/aW1nLzExMTY5NjU0LnBuZw==/original/H66vAn.png'); } /* 牆壁 */
+        .f { background-image: url('https://img.itch.zone/aW1nLzExMTY5NjU1LnBuZw==/original/2PzQoV.png'); } /* 地板 */
+        .s { background-image: url('https://api.iconify.design/pixelarticons:stairs-down.svg?color=%23ffffff'); background-color: #333; } /* 樓梯 */
+        .c { background-image: url('https://api.iconify.design/pixelarticons:chest.svg?color=%23f1c40f'); background-color: #222; } /* 寶箱 */
+
+        /* 主角圖片 */
+        .player-sprite {
+            width: 80%; height: 80%;
+            background-image: url('https://api.iconify.design/pixelarticons:human.svg?color=%233498db');
+            background-size: contain; background-repeat: no-repeat; background-position: center;
+            transition: all 0.1s;
+        }
+
+        /* 戰鬥畫面 */
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; background: #000; z-index: 100; flex-direction: column; }
+        .active { display: flex; }
+
+        .battle-view { height: 250px; background: #111; display: flex; justify-content: space-around; align-items: center; border-bottom: 4px solid #444; }
+        .battle-sprite { width: 100px; height: 100px; image-rendering: pixelated; }
+        
+        .hp-mp-container { width: 90%; margin: 10px auto; }
+        .bar-outer { height: 14px; background: #333; border: 2px solid #fff; margin: 5px 0; }
+        .bar-inner { height: 100%; transition: width 0.3s; }
+
+        .log { flex-grow: 1; background: #000; margin: 10px; border: 2px solid #444; padding: 10px; font-size: 11px; overflow-y: auto; color: #bbb; }
+        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+        button { background: #222; color: #fff; border: 2px solid #fff; padding: 12px; font-size: 12px; cursor: pointer; }
+        button:hover { background: #fff; color: #000; }
+
+        /* 搖桿 */
+        #controls { height: 180px; background: #111; display: flex; justify-content: center; align-items: center; gap: 40px; }
+        .joystick { display: grid; grid-template-areas: ". u ." "l . r" ". d ."; gap: 8px; }
+        .joy-btn { width: 45px; height: 45px; background: #333; border: 2px solid #fff; display: flex; justify-content: center; align-items: center; font-size: 18px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="top-ui">
+        <div>FLOOR <span id="ui-floor" class="val">1</span> | LV <span id="ui-lv" class="val">1</span></div>
+        <div style="display:flex; justify-content:space-between;">
+            <span>HP: <span id="ui-hp" class="val">100</span></span>
+            <span>MP: <span id="ui-mp" class="val">50</span></span>
+        </div>
+    </div>
+
+    <div id="map-wrapper">
+        <div id="map-grid"></div>
+    </div>
+
+    <div id="controls">
+        <div class="joystick">
+            <div class="joy-btn" style="grid-area: u" onclick="move(0,-1)">▲</div>
+            <div class="joy-btn" style="grid-area: l" onclick="move(-1,0)">◀</div>
+            <div class="joy-btn" style="grid-area: r" onclick="move(1,0)">▶</div>
+            <div class="joy-btn" style="grid-area: d" onclick="move(0,1)">▼</div>
+        </div>
+        <button onclick="toggleMenu(true)" style="height:50px">背包</button>
+    </div>
+
+    <!-- 戰鬥畫面 -->
+    <div id="battle-screen" class="screen">
+        <div class="battle-view">
+            <img src="https://api.iconify.design/pixelarticons:human.svg?color=%233498db" class="battle-sprite">
+            <div style="color:red; font-size:20px;">VS</div>
+            <img id="enemy-sprite" src="" class="battle-sprite">
+        </div>
+        <div class="hp-mp-container">
+            <div class="bar-outer"><div id="b-p-hp" class="bar-inner" style="background:#2ecc71; width:100%"></div></div>
+            <div class="bar-outer"><div id="b-e-hp" class="bar-inner" style="background:#e74c3c; width:100%"></div></div>
+        </div>
+        <div id="battle-log" class="log"></div>
+        <div id="battle-btns" class="btns"></div>
+    </div>
+
+    <!-- 背包畫面 -->
+    <div id="menu-screen" class="screen">
+        <div style="padding:20px;">
+            <h3>EQUIPMENT</h3>
+            <div id="equip-info" style="color:#f1c40f; font-size:12px"></div>
+            <h3>INVENTORY</h3>
+            <div id="inv-list"></div>
+            <button onclick="toggleMenu(false)" style="width:100%; margin-top:20px;">CLOSE</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 核心變數 ---
+    const player = {
+        hp: 100, maxHp: 100, mp: 50, maxMp: 50, lv: 1, exp: 0,
+        atk: 10, def: 5, floor: 1, x: 1, y: 1,
+        items: { "Potion": 3 },
+        weapon: { name: "Wooden Sword", atk: 5 },
+        armor: { name: "Rags", def: 2 }
+    };
+
+    let map = [];
+    const size = 10;
+    let enemy = null;
+
+    const monsters = [
+        { name: "Blue Slime", img: "https://api.iconify.design/pixelarticons:bug.svg?color=%235dade2", hp: 40, atk: 8 },
+        { name: "Goblin", img: "https://api.iconify.design/pixelarticons:vanguard.svg?color=%2352be80", hp: 65, atk: 12 },
+        { name: "Skeleton", img: "https://api.iconify.design/pixelarticons:skull.svg?color=%23ecf0f1", hp: 90, atk: 15 }
+    ];
+
+    // --- 地圖生成 ---
+    function initMap() {
+        map = Array(size).fill().map(() => Array(size).fill('w'));
+        let x = 1, y = 1;
+        player.x = x; player.y = y;
+        for(let i=0; i<40; i++) {
+            map[y][x] = 'f';
+            let d = Math.floor(Math.random()*4);
+            if(d===0 && y>1) y--; if(d===1 && y<size-2) y++;
+            if(d===2 && x>1) x--; if(d===3 && x<size-2) x++;
+        }
+        map[y][x] = 's'; // 樓梯
+        // 隨機放寶箱
+        for(let i=0; i<2; i++) {
+            let rx = Math.floor(Math.random()*8)+1, ry = Math.floor(Math.random()*8)+1;
+            if(map[ry][rx] === 'f') map[ry][rx] = 'c';
+        }
+        drawMap();
+    }
+
+    function drawMap() {
+        const grid = document.getElementById('map-grid');
+        grid.innerHTML = '';
+        for(let y=0; y<size; y++) {
+            for(let x=0; x<size; x++) {
+                const cell = document.createElement('div');
+                cell.className = `cell ${map[y][x]}`;
+                if(x === player.x && y === player.y) {
+                    const p = document.createElement('div');
+                    p.className = 'player-sprite';
+                    cell.appendChild(p);
+                }
+                grid.appendChild(cell);
+            }
+        }
+        updateUI();
+    }
+
+    function move(dx, dy) {
+        let nx = player.x + dx, ny = player.y + dy;
+        if(map[ny][nx] === 'w') return;
+        player.x = nx; player.y = ny;
+        
+        const tile = map[ny][nx];
+        if(tile === 's') { player.floor++; initMap(); }
+        else if(tile === 'c') { openChest(); map[ny][nx] = 'f'; }
+        else if(Math.random() < 0.15) startBattle();
+        
+        drawMap();
+    }
+
+    // --- 戰鬥系統 ---
+    function startBattle() {
+        let m = monsters[Math.floor(Math.random()*monsters.length)];
+        let scale = 1 + (player.floor * 0.1);
+        enemy = { ...m, hp: Math.floor(m.hp * scale), maxHp: Math.floor(m.hp * scale) };
+        
+        document.getElementById('enemy-sprite').src = enemy.img;
+        document.getElementById('battle-log').innerHTML = `A wild ${enemy.name} appears!`;
+        document.getElementById('battle-screen').classList.add('active');
+        battleMenu();
+    }
+
+    function battleMenu() {
+        const btns = document.getElementById('battle-btns');
+        btns.innerHTML = `
+            <button onclick="combat('atk')">ATTACK</button>
+            <button onclick="combat('mag')">MAGIC (10MP)</button>
+            <button onclick="combat('item')">POTION</button>
+            <button onclick="combat('run')">RUN</button>
+        `;
+        updateBattleUI();
+    }
+
+    function combat(type) {
+        const log = document.getElementById('battle-log');
+        if(type === 'atk') {
+            let d = player.atk + player.weapon.atk + Math.floor(Math.random()*5);
+            enemy.hp -= d;
+            log.innerHTML += `<div>You hit ${enemy.name} for ${d}!</div>`;
+        } else if(type === 'mag') {
+            if(player.mp < 10) return;
+            player.mp -= 10;
+            let d = player.atk * 3;
+            enemy.hp -= d;
+            log.innerHTML += `<div>Magic Blast! ${d} damage!</div>`;
+        } else if(type === 'item') {
+            if(player.items["Potion"] > 0) {
+                player.hp = Math.min(player.maxHp, player.hp + 40);
+                player.items["Potion"]--;
+                log.innerHTML += `<div>Healed 40 HP!</div>`;
+            }
+        } else if(type === 'run') {
+            if(Math.random() > 0.5) { endBattle(); return; }
+            log.innerHTML += `<div>Escape failed!</div>`;
+        }
+
+        if(enemy.hp <= 0) {
+            alert("Victory!");
+            player.exp += 40;
+            if(player.exp >= 100) { player.lv++; player.exp=0; player.maxHp+=20; player.hp=player.maxHp; alert("Level Up!"); }
+            endBattle();
+        } else {
+            setTimeout(enemyTurn, 500);
+        }
+    }
+
+    function enemyTurn() {
+        let d = Math.max(1, enemy.atk - (player.def + player.armor.def));
+        player.hp -= d;
+        document.getElementById('battle-log').innerHTML += `<div style="color:red">${enemy.name} attacks! ${d} damage.</div>`;
+        updateBattleUI();
+        if(player.hp <= 0) { alert("Game Over"); location.reload(); }
+    }
+
+    function endBattle() {
+        document.getElementById('battle-screen').classList.remove('active');
+        drawMap();
+    }
+
+    function updateBattleUI() {
+        document.getElementById('b-p-hp').style.width = (player.hp/player.maxHp*100) + "%";
+        document.getElementById('b-e-hp').style.width = (enemy.hp/enemy.maxHp*100) + "%";
+        updateUI();
+    }
+
+    // --- 其他功能 ---
+    function openChest() {
+        const loot = [{n:"Steel Sword", a:15, t:"w"}, {n:"Plate Mail", d:12, t:"a"}, {n:"Potion", t:"i"}];
+        let l = loot[Math.floor(Math.random()*loot.length)];
+        if(l.t === "i") player.items["Potion"]++;
+        else if(l.t === "w" && l.a > player.weapon.atk) player.weapon = {name:l.n, atk:l.a};
+        else if(l.t === "a" && l.d > player.armor.def) player.armor = {name:l.n, def:l.d};
+        alert(`Found: ${l.name}!`);
+    }
+
+    function toggleMenu(s) {
+        document.getElementById('menu-screen').classList.toggle('active', s);
+        if(s) {
+            document.getElementById('equip-info').innerHTML = `WPN: ${player.weapon.name}(+${player.weapon.atk})<br>ARM: ${player.armor.name}(+${player.armor.def})`;
+            document.getElementById('inv-list').innerHTML = `Potion x${player.items.Potion}`;
+        }
+    }
+
+    function updateUI() {
+        document.getElementById('ui-floor').innerText = player.floor;
+        document.getElementById('ui-lv').innerText = player.lv;
+        document.getElementById('ui-hp').innerText = player.hp;
+        document.getElementById('ui-mp').innerText = player.mp;
+    }
+
+    initMap();
+</script>
+</body>
+</html>
